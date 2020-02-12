@@ -20,85 +20,20 @@ from utils.test_util import test_all_case
 from dataloaders.abus import ABUS, RandomCrop, CenterCrop, RandomRotFlip, ToTensor, TwoStreamBatchSampler 
 
 def get_args():
+    fold = 2
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root_path', type=str, default='../data/abus_roi/', help='data root path')
+    parser.add_argument('--root_path', type=str, default='./data/abus_roi/', help='data root path')
     parser.add_argument('--num_classes', type=int, default=2, help='number of classes')
     parser.add_argument('--start_epoch', type=int, default=40000)
 
-    parser.add_argument('--snapshot_path', type=str, default='./work/abus_roi/0117_dice_bd_1', help='snapshot path')
-    parser.add_argument('--test_save_path', type=str, default='./results/abus_roi/0118_dice_bd_1/', help='save path')
+    parser.add_argument('--snapshot_path', type=str, default='./work/0110_dice_'+str(fold), help='snapshot path')
+    parser.add_argument('--test_save_path', type=str, default='./results/test_'+str(fold), help='save path')
+    parser.add_argument('--fold', type=str,  default=str(fold), help='random seed')
+
     parser.add_argument('--use_tm', action='store_true', default=False, help='whether use threshold_map')
 
     args = parser.parse_args()
     return args
-
-def test_single_case(args, net, image, stride_xy, stride_z, patch_size, num_classes=1):
-    w, h, d = image.shape
-    #print(image.shape)
-
-    # if the size of image is less than patch_size, then padding it
-    add_pad = False
-    if w < patch_size[0]:
-        w_pad = patch_size[0]-w
-        add_pad = True
-    else:
-        w_pad = 0
-    if h < patch_size[1]:
-        h_pad = patch_size[1]-h
-        add_pad = True
-    else:
-        h_pad = 0
-    if d < patch_size[2]:
-        d_pad = patch_size[2]-d
-        add_pad = True
-    else:
-        d_pad = 0
-    wl_pad, wr_pad = w_pad//2,w_pad-w_pad//2
-    hl_pad, hr_pad = h_pad//2,h_pad-h_pad//2
-    dl_pad, dr_pad = d_pad//2,d_pad-d_pad//2
-    if add_pad:
-        image = np.pad(image, [(wl_pad,wr_pad),(hl_pad,hr_pad), (dl_pad, dr_pad)], mode='constant', constant_values=0)
-    ww,hh,dd = image.shape
-
-    sx = math.ceil((ww - patch_size[0]) / stride_xy) + 1
-    sy = math.ceil((hh - patch_size[1]) / stride_xy) + 1
-    sz = math.ceil((dd - patch_size[2]) / stride_z) + 1
-    #print("{}, {}, {}".format(sx, sy, sz))
-    score_map = np.zeros((num_classes, ) + image.shape).astype(np.float32)
-    cnt = np.zeros(image.shape).astype(np.float32)
-
-    for x in range(0, sx):
-        xs = min(stride_xy*x, ww-patch_size[0])
-        for y in range(0, sy):
-            ys = min(stride_xy * y,hh-patch_size[1])
-            for z in range(0, sz):
-                zs = min(stride_z * z, dd-patch_size[2])
-                test_patch = image[xs:xs+patch_size[0], ys:ys+patch_size[1], zs:zs+patch_size[2]]
-                test_patch = np.expand_dims(np.expand_dims(test_patch,axis=0),axis=0).astype(np.float32)
-                test_patch = torch.from_numpy(test_patch).cuda()
-                #print('test_patch.shape: ', test_patch.shape)
-
-                y1 = net(test_patch)
-                y1 = F.softmax(y1, dim=1)
-                y = y1.float()
-                y = y.cpu().data.numpy()
-                y = y[0,:,:,:,:]
-
-                score_map[:, xs:xs+patch_size[0], ys:ys+patch_size[1], zs:zs+patch_size[2]] \
-                  = score_map[:, xs:xs+patch_size[0], ys:ys+patch_size[1], zs:zs+patch_size[2]] + y
-                cnt[xs:xs+patch_size[0], ys:ys+patch_size[1], zs:zs+patch_size[2]] \
-                  = cnt[xs:xs+patch_size[0], ys:ys+patch_size[1], zs:zs+patch_size[2]] + 1
-    score_map = score_map/np.expand_dims(cnt,axis=0)
-    #label_map = np.argmax(score_map, axis = 0)
-    label_map = score_map[1].copy()
-    label_map[label_map > 0.5] = 1
-    label_map[label_map != 1] = 0
-    #print('label_max:', label_map.max())
-
-    if add_pad:
-        label_map = label_map[wl_pad:wl_pad+w,hl_pad:hl_pad+h,dl_pad:dl_pad+d]
-        score_map = score_map[:,wl_pad:wl_pad+w,hl_pad:hl_pad+h,dl_pad:dl_pad+d]
-    return label_map, score_map 
 
 
 def calculate_metric_percase(pred, gt):
@@ -109,7 +44,12 @@ def calculate_metric_percase(pred, gt):
 
     return dice, jc, hd, asd
 
-def test_all_case(args, net, testloader, num_classes, patch_size, stride_xy=18, stride_z=4, save_result=True, test_save_path=None, preproc_fn=None):
+def transpose(image):
+    image = np.transpose(image, (2, 0, 1))
+    return image
+
+
+def test(args, net, testloader, num_classes, save_result=True, test_save_path=None):
     total_metric = 0.0
     metric_dict = OrderedDict()
     metric_dict['name'] = list()
@@ -117,61 +57,66 @@ def test_all_case(args, net, testloader, num_classes, patch_size, stride_xy=18, 
     metric_dict['jaccard'] = list()
     metric_dict['asd'] = list()
     metric_dict['95hd'] = list()
-    for sample in tqdm(testloader): 
-        image = sample['image']
-        label = sample['label']
-        case_name = sample['filename']
-        image = image[0]
-        label = label[0]
-        case_name = case_name[0]
-        if preproc_fn is not None:
-            image = preproc_fn(image)
-        prediction, score_map = test_single_case(args, net, image, stride_xy, stride_z, patch_size, num_classes=num_classes)
 
-        image = image.numpy()
-        label = label.numpy()
+    with torch.no_grad():
+        for sample in tqdm(testloader): 
+            image = sample['image']
+            label = sample['label']
+            case_name = sample['filename']
+            image, label = image.cuda(), label.cuda()
+            out = net(image)
+            score_map = F.softmax(out, dim=1)
+            score_map = score_map.cpu().data.numpy()
+            score_map = score_map[0, 1:2, :, :, :]
 
-        if np.sum(prediction)==0:
-            single_metric = (0,0,0,0)
-            print('prediction == 0')
-        else:
-            single_metric = calculate_metric_percase(prediction, label[:])
-            metric_dict['name'].append(case_name)
-            metric_dict['dice'].append(single_metric[0])
-            metric_dict['jaccard'].append(single_metric[1])
-            metric_dict['asd'].append(single_metric[2])
-            metric_dict['95hd'].append(single_metric[3])
-            # print(metric_dict)
+            prediction = score_map.copy()
+            prediction[prediction > 0.5] = 1
+            prediction[prediction != 1] = 0
 
-        total_metric += np.asarray(single_metric)
+            image = image.cpu().numpy()
+            label = label.cpu().numpy()
 
-        if save_result:
-            test_save_path_temp = os.path.join(test_save_path, case_name)
-            if not os.path.exists(test_save_path_temp):
-                os.makedirs(test_save_path_temp)
+            if np.sum(prediction)==0:
+                single_metric = (0,0,0,0)
+                print('prediction == 0')
+            else:
+                single_metric = calculate_metric_percase(prediction, label)
+                metric_dict['name'].append(case_name)
+                metric_dict['dice'].append(single_metric[0])
+                metric_dict['jaccard'].append(single_metric[1])
+                metric_dict['asd'].append(single_metric[2])
+                metric_dict['95hd'].append(single_metric[3])
+                # print(metric_dict)
 
-            prediction = transpose(prediction.astype(np.float32))
-            score_map = transpose(score_map[1].astype(np.float32))
-            image = transpose(image[:].astype(np.float32))
-            label = transpose(label[:].astype(np.float32))
-            nib.save(nib.Nifti1Image(prediction, np.eye(4)), test_save_path_temp + '/'  + "pred.nii.gz")
-            nib.save(nib.Nifti1Image(score_map, np.eye(4)), test_save_path_temp + '/'  + "prob.nii.gz")
-            nib.save(nib.Nifti1Image(image, np.eye(4)), test_save_path_temp + '/' +  "img.nii.gz")
-            nib.save(nib.Nifti1Image(label, np.eye(4)), test_save_path_temp + '/' + "gt.nii.gz")
-    avg_metric = total_metric / len(testloader)
-    print('average metric is {}'.format(avg_metric))
-    return avg_metric
+            total_metric += np.asarray(single_metric)
 
-def transpose(image):
-    image = np.transpose(image, (2, 0, 1))
-    return image
+            if save_result:
+                test_save_path_temp = os.path.join(args.test_save_path, case_name[0])
+                if not os.path.exists(test_save_path_temp):
+                    os.makedirs(test_save_path_temp)
+                
+                prediction = transpose(prediction[0].astype(np.float32))
+                score_map = transpose(score_map[0].astype(np.float32))
+                #print('image', image.shape)
+                #print('label', label.shape)
+                image = transpose(image[0, 0, ...].astype(np.float32))
+                label = transpose(label[0].astype(np.float32))
+                nib.save(nib.Nifti1Image(prediction, np.eye(4)), test_save_path_temp + '/'  + "pred.nii.gz")
+                nib.save(nib.Nifti1Image(score_map, np.eye(4)), test_save_path_temp + '/'  + "prob.nii.gz")
+                nib.save(nib.Nifti1Image(image, np.eye(4)), test_save_path_temp + '/' +  "img.nii.gz")
+                nib.save(nib.Nifti1Image(label, np.eye(4)), test_save_path_temp + '/' + "gt.nii.gz")
+        avg_metric = total_metric / len(testloader)
+        print('average metric is {}'.format(avg_metric))
+        return avg_metric
+
     
 def main():
     args = get_args()
     if not os.path.exists(args.test_save_path):
         os.makedirs(args.test_save_path)
 
-    db_test = ABUS(base_dir=args.root_path, split='test')
+    transform = transforms.Compose([ToTensor()])
+    db_test = ABUS(base_dir=args.root_path, fold=args.fold, split='test', transform=transform)
     testloader = DataLoader(db_test, batch_size=1, shuffle=False,  num_workers=1, pin_memory=True)
     args.testloader = testloader
 
@@ -181,9 +126,7 @@ def main():
     print("init weight from {}".format(save_mode_path))
     net.eval()
 
-    test_all_case(args, net, args.testloader, num_classes=args.num_classes,
-                               patch_size=(64, 128, 128), stride_xy=18, stride_z=4,
-                               save_result=True, test_save_path=args.test_save_path)
+    test(args, net, testloader, num_classes=args.num_classes, save_result=True, test_save_path=args.test_save_path)
 
 if __name__ == '__main__':
     main()

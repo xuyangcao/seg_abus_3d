@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 import sys
 from tqdm import tqdm
 import shutil
@@ -21,6 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
 
 from networks.vnet import VNet
+from networks.unet_3d import UNet3D 
 from dataloaders.abus import ABUS, RandomCrop, CenterCrop, RandomRotFlip, ToTensor, TwoStreamBatchSampler 
 #from dataloaders.la_heart import LAHeart, RandomCrop, CenterCrop, RandomRotFlip, ToTensor, TwoStreamBatchSampler
 from utils.losses import dice_loss, GeneralizedDiceLoss, threshold_loss
@@ -86,7 +87,8 @@ def main():
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(str(args))
 
-    net = VNet(n_channels=1, n_classes=num_classes, normalization='batchnorm', has_dropout=True, use_tm=args.use_tm)
+    #net = VNet(n_channels=1, n_classes=num_classes, normalization='batchnorm', has_dropout=True, use_tm=args.use_tm)
+    net = UNet3D(in_channels=1, n_classes=num_classes)
     net = net.cuda()
 
     db_train = ABUS(base_dir=args.root_path,
@@ -123,7 +125,7 @@ def main():
             #print('volume_batch.shape: ', volume_batch.shape)
             #print('outputs.shape, ', outputs.shape)
 
-            loss_seg = F.cross_entropy(outputs, label_batch)
+            #loss_seg = F.cross_entropy(outputs, label_batch)
             outputs_soft = F.softmax(outputs, dim=1)
             #print(outputs_soft.shape)
             #print(label_batch.shape)
@@ -144,7 +146,7 @@ def main():
 
             iter_num = iter_num + 1
             writer.add_scalar('train/lr', lr_, iter_num)
-            writer.add_scalar('train/loss_seg', loss_seg, iter_num)
+            #writer.add_scalar('train/loss_seg', loss_seg, iter_num)
             writer.add_scalar('train/loss_seg_dice', loss_seg_dice, iter_num)
             writer.add_scalar('train/loss', loss, iter_num)
             writer.add_scalar('train/dice', dice, iter_num)

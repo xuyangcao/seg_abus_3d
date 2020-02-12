@@ -8,7 +8,8 @@ from medpy import metric
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file_path', type=str, default='./results/abus_roi/0108_dice_1/')
+    parser.add_argument('--file_path', type=str, default='')
+    parser.add_argument('--fold', type=int, default=5)
 
     args = parser.parse_args()
     # save csv file to the current folder
@@ -19,20 +20,19 @@ def get_args():
 
     return args
 
-def main():
-    args = get_args()
+def get_df(file_path):
+    filenames = os.listdir(file_path)
 
     dsc_list = []
     jc_list = []
     hd_list = []
     hd95_list = []
     asd_list = []
-    filenames = os.listdir(args.file_path)
     for filename in tqdm.tqdm(filenames):
-        gt_img = sitk.ReadImage(os.path.join(args.file_path, filename+'/gt.nii.gz'))
+        gt_img = sitk.ReadImage(os.path.join(file_path, filename+'/gt.nii.gz'))
         gt_volume = sitk.GetArrayFromImage(gt_img)
 
-        pre_img = sitk.ReadImage(os.path.join(args.file_path, filename+'/pred.nii.gz'))
+        pre_img = sitk.ReadImage(os.path.join(file_path, filename+'/pred.nii.gz'))
         pre_volume = sitk.GetArrayFromImage(pre_img)
 
         dsc = metric.binary.dc(pre_volume, gt_volume)
@@ -60,8 +60,20 @@ def main():
     df['hd'] = np.array(hd_list) 
     df['hd95'] = np.array(hd95_list) 
     df['asd'] = np.array(asd_list) 
-    print(df.describe())
-    df.to_csv(args.save)
+    #print(df.describe())
+    #df.to_csv(args.save)
+    return df
+
+def main():
+    args = get_args()
+    df_all = pd.DataFrame()
+    for i in range(1, args.fold+1):
+        file_path = args.file_path+str(i)
+        df = get_df(file_path)
+        df_all = df_all.append(df)
+    df_all.to_csv(args.save)
+    print(df_all.describe())
+
 
 if __name__ == '__main__':
     main()
