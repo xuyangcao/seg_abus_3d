@@ -22,6 +22,7 @@ from torchvision.utils import make_grid
 
 from networks.vnet import VNet
 from networks.unet_3d import UNet3D 
+from networks.atrous_denseunet import AtrousDenseNet
 from dataloaders.abus import ABUS, RandomCrop, CenterCrop, RandomRotFlip, ToTensor, TwoStreamBatchSampler 
 #from dataloaders.la_heart import LAHeart, RandomCrop, CenterCrop, RandomRotFlip, ToTensor, TwoStreamBatchSampler
 from utils.losses import dice_loss, GeneralizedDiceLoss, threshold_loss
@@ -88,7 +89,8 @@ def main():
     logging.info(str(args))
 
     #net = VNet(n_channels=1, n_classes=num_classes, normalization='batchnorm', has_dropout=True, use_tm=args.use_tm)
-    net = UNet3D(in_channels=1, n_classes=num_classes)
+    net = AtrousDenseNet(in_planes=1, out_planes=2)
+    #net = UNet3D(in_channels=1, n_classes=num_classes)
     net = net.cuda()
 
     db_train = ABUS(base_dir=args.root_path,

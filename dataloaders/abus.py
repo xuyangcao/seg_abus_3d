@@ -124,6 +124,7 @@ class RandomCrop(object):
 
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
+        #print('crop.shape', image.shape)
         if self.use_dismap:
             dis_map = sample['dis_map']
 
@@ -178,12 +179,14 @@ class RandomRotFlip(object):
             k = k[0]
             image = np.rot90(image, k)
             label = np.rot90(label, k)
+            #print('rot90.shape', image.shape)
             if self.use_dismap:
                 dis_map = np.rot90(dis_map, k)
 
             axis = np.random.randint(0, 2)
             image = np.flip(image, axis=axis).copy()
             label = np.flip(label, axis=axis).copy()
+            #print('flip.shape', image.shape)
             if self.use_dismap:
                 dis_map = np.flip(dis_map, axis=axis).copy()
 

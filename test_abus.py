@@ -16,18 +16,19 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 
 from networks.vnet import VNet
+from networks.unet_3d import UNet3D
 from utils.test_util import test_all_case
 from dataloaders.abus import ABUS, RandomCrop, CenterCrop, RandomRotFlip, ToTensor, TwoStreamBatchSampler 
 
 def get_args():
-    fold = 2
+    fold = 1
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_path', type=str, default='./data/abus_roi/', help='data root path')
     parser.add_argument('--num_classes', type=int, default=2, help='number of classes')
     parser.add_argument('--start_epoch', type=int, default=40000)
 
-    parser.add_argument('--snapshot_path', type=str, default='./work/0110_dice_'+str(fold), help='snapshot path')
-    parser.add_argument('--test_save_path', type=str, default='./results/test_'+str(fold), help='save path')
+    parser.add_argument('--snapshot_path', type=str, default='../work/0213_vnet_'+str(fold), help='snapshot path')
+    parser.add_argument('--test_save_path', type=str, default='./results/0213_vnet_'+str(fold), help='save path')
     parser.add_argument('--fold', type=str,  default=str(fold), help='random seed')
 
     parser.add_argument('--use_tm', action='store_true', default=False, help='whether use threshold_map')
@@ -50,6 +51,8 @@ def transpose(image):
 
 
 def test(args, net, testloader, num_classes, save_result=True, test_save_path=None):
+    net.eval()
+
     total_metric = 0.0
     metric_dict = OrderedDict()
     metric_dict['name'] = list()
@@ -64,6 +67,8 @@ def test(args, net, testloader, num_classes, save_result=True, test_save_path=No
             label = sample['label']
             case_name = sample['filename']
             image, label = image.cuda(), label.cuda()
+            #print(image.is_cuda)
+            #print(net.is_cuda)
             out = net(image)
             score_map = F.softmax(out, dim=1)
             score_map = score_map.cpu().data.numpy()
@@ -121,10 +126,12 @@ def main():
     args.testloader = testloader
 
     net = VNet(n_channels=1, n_classes=args.num_classes, normalization='batchnorm', has_dropout=False, use_tm=args.use_tm).cuda()
+    #net = UNet3D(in_channels=1, n_classes=args.num_classes)
+    net = net.cuda()
+
     save_mode_path = os.path.join(args.snapshot_path, 'iter_' + str(args.start_epoch) + '.pth')
     net.load_state_dict(torch.load(save_mode_path))
     print("init weight from {}".format(save_mode_path))
-    net.eval()
 
     test(args, net, testloader, num_classes=args.num_classes, save_result=True, test_save_path=args.test_save_path)
 
